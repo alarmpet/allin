@@ -1,0 +1,74 @@
+# Local Video Factory - 전역 설정
+# 초보자는 이 파일을 건드리지 않아도 됩니다. (전문가/경로 설정용)
+
+# ── Ollama (로컬 LLM) ───────────────────────────────────────────
+ollama_base_url: "http://localhost:11434"
+ollama_chat_endpoint: "http://localhost:11434/api/chat"
+ollama_openai_base_url: "http://127.0.0.1:11434/v1"
+# 설치된 모델명 (ollama list 로 확인). 현재 환경 확인값:
+ollama_model: "qwen3.5-9b-local:latest"
+ollama_timeout: 180          # LLM 호출 타임아웃(초)
+ollama_temperature: 0.2
+ollama_top_p: 0.9
+ollama_unload_after_run: false   # 작업 후 모델 메모리 해제(영상 생성 전 VRAM 확보용)
+
+# ── 사용 금지 (문서 규칙: 절대 true로 바꾸지 말 것) ──────────────
+use_lmstudio: false
+use_gemma: false
+use_paid_api: false
+use_external_video_mcp: false
+
+# ── 컷/영상 기본값 (LTX2 기준) ──────────────────────────────────
+default_max_shot_seconds: 6
+default_shot_seconds: 5
+default_frames_per_shot: 135
+default_fps: 24
+test_resolution: "512x320"
+final_aspect_ratio: "9:16"
+
+# ── 외부 도구 경로 (Phase 3~5에서 사용. 지금은 비워둬도 됨) ──────
+wan_gp_path: "C:/pinokio/api/wan.git/app"                 # WanGP 앱 폴더 (열기용)
+wan_gp_output_path: "C:/pinokio/api/wan.git/app/outputs"  # WanGP가 mp4를 저장하는 폴더
+# WanGP 큐 파일을 만들 때 복제할 '검증된 템플릿' (queue.json 또는 queue.zip).
+# 비워두면 앱 폴더의 small_moments_queue/queue.json을 자동으로 찾는다.
+wan_gp_queue_template: ""
+# Supertonic3 (로컬 TTS) — 설치 폴더. 자동 감지된 값:
+supertonic_home: "C:/Users/petbl/supertonic3-local-tts-20260517-r4"
+supertonic_host: "127.0.0.1"
+supertonic_port: 3093           # HTTP 서버가 떠 있으면 우선 사용, 없으면 CLI 폴백
+supertonic_model: "supertonic-3"
+supertonic_lang: "ko"
+supertonic_speed: 1.05
+supertonic_total_step: 8
+supertonic_silence_duration: 0.3
+supertonic_default_voice: "F1"  # 친화적 목소리 이름은 UI에서 매핑
+supertonic_path: ""             # (구버전 호환용, 비워둬도 됨)
+supertonic_voice_preset: "default_ko"
+tts_output_format: "wav"
+ffmpeg_path: "ffmpeg"
+ffprobe_path: "ffprobe"
+
+# ── 프로젝트 저장 위치 ──────────────────────────────────────────
+project_root: "./projects"
+
+# ── UI ──────────────────────────────────────────────────────────
+ui_type: "gradio"
+enable_electron_later: true
+
+# ── 안전장치 (문서 08) ──────────────────────────────────────────
+allowed_commands:
+  - "ffmpeg"
+  - "ffprobe"
+  - "python"
+  - "dir"
+  - "copy"
+  - "move"
+  - "mkdir"
+blocked_commands:
+  - "del /s"
+  - "format"
+  - "curl"
+  - "powershell -enc"
+  - "scp"
+  - "ftp"
+

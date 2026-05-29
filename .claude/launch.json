@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "video-factory-ui",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["local_video_factory/app_gradio.py"],
+      "port": 7860
+    }
+  ]
+}

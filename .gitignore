@@ -1,0 +1,18 @@
+# Local Video Factory - Generated projects and logs
+local_video_factory/projects/
+
+# Python cache and virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+ENV/
+
+# OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

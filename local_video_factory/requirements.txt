@@ -1,0 +1,6 @@
+# Local Video Factory - Phase 1 (CLI MVP) 의존성
+# 외부 유료 API/SDK 없음. 로컬 전용.
+requests>=2.31.0     # Ollama HTTP 호출
+PyYAML>=6.0          # config.yaml 읽기
+
+gradio>=5.0          # Phase 2 UI (개발 환경은 6.15.2에서 검증)
