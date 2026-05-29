@@ -18,6 +18,17 @@ STYLE_FILES: Dict[str, str] = {
     "info": "style_info.md",
     "senior": "style_senior_trot.md",
     "senior_trot": "style_senior_trot.md",
+    "anime_3d": "style_anime_3d.md",
+    "claymation": "style_claymation.md",
+    "lofi_3d_figure": "style_lofi_3d_figure.md",
+    "stickman_sketch": "style_stickman_sketch.md",
+    "asmr_cinematic": "style_asmr_cinematic.md",
+    "neo_closure_vlog": "style_neo_closure_vlog.md",
+    "retro_8bit": "style_retro_8bit.md",
+    "cyberpunk_neon": "style_cyberpunk_neon.md",
+    "minimal_beauty_cf": "style_minimal_beauty_cf.md",
+    "vlog_illus_self": "style_vlog_illus_self.md",
+    "wabi_sabi_japan": "style_wabi_sabi_japan.md",
 }
 
 # 스타일 파일을 못 찾았을 때 쓰는 공통 negative prompt
@@ -64,3 +75,33 @@ def negative_prompt_for(input_mode: str = "", style_preset: str = "") -> str:
             if i + 1 < len(lines) and lines[i + 1].strip():
                 return lines[i + 1].strip()
     return DEFAULT_NEGATIVE
+
+
+def _extract_block_after_heading(ctx: str, heading: str) -> str:
+    lines = ctx.splitlines()
+    collecting = False
+    values = []
+    for line in lines:
+        stripped = line.strip()
+        if collecting:
+            if not stripped:
+                continue
+            if stripped.endswith(":") or (":" in stripped and any(h in stripped.lower() for h in ["mood", "visual style", "camera", "texture cues", "style lock prefix", "default negative prompt"])):
+                break
+            values.append(stripped)
+            continue
+        if heading.lower() in stripped.lower():
+            after = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
+            if after:
+                return after
+            collecting = True
+    return " ".join(values).strip()
+
+
+def style_lock_prefix_for(style_preset: str = "", input_mode: str = "") -> str:
+    ctx = style_context(input_mode, style_preset)
+    return _extract_block_after_heading(ctx, "Style lock prefix")
+
+
+def style_lock_negative_for(style_preset: str = "", input_mode: str = "") -> str:
+    return negative_prompt_for(input_mode, style_preset)

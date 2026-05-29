@@ -74,6 +74,7 @@ local_video_factory/
 │   ├── script_parser_skill.py   # 대본 → script_segments.json  (LLM)
 │   ├── shot_planner_skill.py     # segments → shots.json (6초 컷, 타이밍은 코드가 결정) (LLM)
 │   ├── prompt_director_skill.py  # shots → prompt_XXX.txt + negative_prompt.txt (LLM, 1회 배치) + 규칙기반 품질채점 + Deepy팩
+│   ├── visual_style_consistency_skill.py # 결정론적 스타일 잠금(Prefix/Negative) 및 캐릭터 잠금 후처리 적용 (LLM 없음)
 │   ├── ltx_prompt_enhancer_skill.py  # LTX-2 특화 프롬프트 강화 (LLM, 연구소 탭 전용)
 │   ├── prompt_quality_score.py       # 프롬프트 품질 6항목 규칙 채점 (LLM 없음)
 │   ├── wangp_deepy_bridge_skill.py   # WanGP/Deepy JSON팩 + 배치 md 생성 (LLM 없음)
@@ -92,8 +93,9 @@ local_video_factory/
 │   ├── script_parser.md     # script_parser 작업 지시
 │   ├── shot_planner.md       # shot_planner 작업 지시
 │   ├── wangp_ltx2_prompt_template.md  # 영어 영상 프롬프트 생성 지시
-│   └── style_*.md           # 스타일 프리셋(mochi/product_cf/info/emotional/senior_trot)
-│                            #   각 파일에 "Default negative prompt:" 줄 포함 → negative 추출
+│   └── style_*.md           # 스타일 프리셋(mochi/product_cf/info/emotional/senior_trot 등 기존 5종 + anime_3d, claymation 등 신규 11종)
+│                            #   각 파일에 "Style lock prefix:" 및 "Default negative prompt:" 추출용 마크업 포함.
+
 │
 └── projects/                # 산출물 (실행 중 생성)
     └── <YYYY-MM-DD_제목>/
@@ -148,6 +150,7 @@ local_video_factory/
 ### project.json
 ```json
 {"project_id","project_title","created_at","updated_at","input_mode","style_preset",
+ "visual_style_preset","char_lock_prompt","style_reference_image",
  "target_duration","max_shot_duration","fps","frames_per_shot","resolution","final_aspect_ratio"}
 ```
 
@@ -166,6 +169,7 @@ shot_number, chapter_id, start_time, end_time, duration, source_sentences[],
 korean_description, keywords[], emotion, camera, lighting, motion,
 english_video_prompt, negative_prompt, tts_text, tts_file, subtitle_ko, video_file, status
 (+ TTS 후) tts_duration, tts_voice, tts_status
+(+ 스타일 잠금 적용 후) style_lock_applied, style_lock_prefix, visual_style_preset
 ```
 - `status` 값: `planned` → `prompt_ready` → (`video_ready`). TTS는 `tts_status`(ready/failed/skipped).
 

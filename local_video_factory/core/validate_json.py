@@ -193,4 +193,7 @@ def validate_shots(data: Any) -> Dict[str, Any]:
         })
         shot.setdefault("prompt_version", 1)
         shot.setdefault("best_prompt_id", "")
+        shot.setdefault("style_lock_applied", False)
+        shot.setdefault("style_lock_prefix", "")
+        shot.setdefault("visual_style_preset", "")
     return data

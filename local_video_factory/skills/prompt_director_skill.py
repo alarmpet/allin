@@ -14,6 +14,7 @@ from . import _common
 from . import ltx_prompt_enhancer_skill
 from . import prompt_quality_score
 from . import wangp_deepy_bridge_skill
+from . import visual_style_consistency_skill
 
 _PROMPT_TAIL = (
     "vertical short-form composition"
@@ -78,7 +79,7 @@ def generate_prompts(cfg: Dict[str, Any], pm, project: Dict[str, Any],
 
     style_hint = ctx.splitlines()[0].replace("STYLE:", "").strip() if ctx else ""
 
-    # 각 컷에 프롬프트 채우고 txt 저장
+    # 1. 각 컷에 기본/초기 프롬프트 설정
     for s in shots:
         num = s["shot_number"]
         eng = prompt_by_num.get(num, "").strip()
@@ -87,30 +88,41 @@ def generate_prompts(cfg: Dict[str, Any], pm, project: Dict[str, Any],
         s["english_video_prompt"] = eng
         s["negative_prompt"] = negative
         s["status"] = "prompt_ready"
-
-        # base_prompt 보존 (연구소 탭에서 원본 비교용)
         s["base_prompt"] = eng
-
-        # ltx_prompt는 초기에 base_prompt와 동일하게 초기화
-        # (LTX-2 특화 강화는 사용자가 연구소 탭에서 명시적으로 실행할 때만 수행)
         s.setdefault("ltx_prompt", eng)
         s.setdefault("ltx_negative_prompt", negative)
 
+    # 2. 스타일 및 캐릭터 잠금 후처리 적용
+    char_lock = str(project.get("char_lock_prompt", "")).strip()
+    visual_style_consistency_skill.apply_style_lock(
+        shots_data,
+        project.get("style_preset", ""),
+        char_lock=char_lock,
+        input_mode=project.get("input_mode", ""),
+    )
+
+    # 3. 채점, Deepy 팩 빌드 및 개별 파일 저장
+    for s in shots:
+        num = s["shot_number"]
+        locked_eng = s["english_video_prompt"]
+        locked_neg = s["negative_prompt"]
+
         # 품질 채점 (규칙 기반, LLM 호출 없음)
-        score = prompt_quality_score.evaluate_prompt(eng)
+        score = prompt_quality_score.evaluate_prompt(locked_eng)
         s["prompt_quality_score"] = score
 
         # Deepy 팩 초기 빌드 (LLM 호출 없음)
-        s["deepy_prompt_pack"] = wangp_deepy_bridge_skill.build_deepy_pack(s)
+        s["deepy_prompt_pack"] = wangp_deepy_bridge_skill.build_deepy_pack(s, char_lock)
 
-        # 기본 텍스트 파일 저장
-        pm.save_text(f"prompt_{num:03d}.txt", eng + "\n")
+        # 기본 텍스트 파일 저장 (Locked prompt 저장)
+        pm.save_text(f"prompt_{num:03d}.txt", locked_eng + "\n")
 
-    # 공통 negative prompt 파일
-    pm.save_text("negative_prompt.txt", negative + "\n")
+    # 공통 negative prompt 파일 (Locked negative 저장)
+    effective_negative = shots[0]["negative_prompt"] if shots else negative
+    pm.save_text("negative_prompt.txt", effective_negative + "\n")
 
-    # WanGP / Deepy 개별 복사용 파일들 일괄 빌드 및 md 저장
-    wangp_deepy_bridge_skill.export_wangp_files(pm, shots_data)
+    # WanGP / Deepy 개별 복사용 파일들 일괄 빌드 및 md 저장 (locked prompt 정보 활용)
+    wangp_deepy_bridge_skill.export_wangp_files(pm, shots_data, char_lock)
 
     pm.save_json("shots.json", shots_data)
     return shots_data

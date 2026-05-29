@@ -108,7 +108,16 @@ class ProjectManager:
 
     def load_json(self, name: str) -> Any:
         with open(self.path(name), "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        if name == "project.json" and isinstance(data, dict):
+            mode = data.get("input_mode", "emotional") or "emotional"
+            style = data.get("style_preset", mode) or mode
+            data.setdefault("input_mode", mode)
+            data.setdefault("style_preset", style)
+            data.setdefault("visual_style_preset", style)
+            data.setdefault("char_lock_prompt", data.get("character_lock_prompt", ""))
+            data.setdefault("style_reference_image", "")
+        return data
 
     def save_text(self, name: str, text: str, *, bom: bool = False) -> str:
         target = self.path(name)
@@ -165,7 +174,9 @@ def _now_iso() -> str:
 
 
 def create_project(root: str, title: str, *, input_mode: str, style_preset: str,
-                   target_duration: int, cfg: Dict[str, Any]) -> ProjectManager:
+                   target_duration: int, cfg: Dict[str, Any],
+                   visual_style_preset: str = "", char_lock_prompt: str = "",
+                   style_reference_image: str = "") -> ProjectManager:
     """새 프로젝트 폴더와 project.json/status.json을 만든다."""
     date = _dt.date.today().isoformat()
     slug = slugify(title)
@@ -188,6 +199,9 @@ def create_project(root: str, title: str, *, input_mode: str, style_preset: str,
         "updated_at": now,
         "input_mode": input_mode,
         "style_preset": style_preset,
+        "visual_style_preset": visual_style_preset or style_preset,
+        "char_lock_prompt": char_lock_prompt,
+        "style_reference_image": style_reference_image,
         "target_duration": target_duration,
         "max_shot_duration": cfg["default_max_shot_seconds"],
         "fps": cfg["default_fps"],

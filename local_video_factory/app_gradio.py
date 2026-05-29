@@ -30,6 +30,7 @@ from skills import (  # noqa: E402
     ltx_prompt_enhancer_skill,
     prompt_quality_score,
     wangp_deepy_bridge_skill,
+    visual_style_consistency_skill,
 )
 from tools import supertonic_engine, watcher, ffmpeg_tools, wangp_queue  # noqa: E402
 
@@ -40,6 +41,35 @@ MODE_MAP = {
     "정보 전달 영상": "info",
     "모찌/동물 스토리": "mochi",
     "시니어 정보": "senior",
+}
+VISUAL_STYLE_AUTO = "콘텐츠 목적 자동"
+VISUAL_STYLE_MAP = {
+    VISUAL_STYLE_AUTO: "",
+    "3D 애니 필름": "anime_3d",
+    "클레이 애니메이션": "claymation",
+    "로파이 3D 피규어": "lofi_3d_figure",
+    "스틱맨 노트북 낙서": "stickman_sketch",
+    "ASMR 시네마틱": "asmr_cinematic",
+    "네오 클로저 브이로그": "neo_closure_vlog",
+    "레트로 8비트": "retro_8bit",
+    "사이버펑크 네온": "cyberpunk_neon",
+    "미니멀 뷰티 CF": "minimal_beauty_cf",
+    "브이로그 일러스트 셀프": "vlog_illus_self",
+    "와비사비 재팬 리얼": "wabi_sabi_japan",
+}
+VISUAL_STYLE_PREVIEW = {
+    VISUAL_STYLE_AUTO: "콘텐츠 목적에 맞는 기존 스타일을 그대로 사용합니다.",
+    "3D 애니 필름": "밝고 역동적인 3D 극장판 애니메이션 느낌을 구현합니다.",
+    "클레이 애니메이션": "수공예 클레이 질감과 스톱모션 느낌을 모든 컷에 고정합니다.",
+    "로파이 3D 피규어": "포근한 파스텔톤 저폴리곤 3D 피규어와 미니어처 느낌을 줍니다.",
+    "스틱맨 노트북 낙서": "줄노트 위 연필로 그린 단순하고 재치 있는 스틱맨 애니메이션 스타일입니다.",
+    "ASMR 시네마틱": "초근접 접사(Macro)와 부드러운 카메라 이동으로 감각적인 질감을 극대화합니다.",
+    "네오 클로저 브이로그": "필름 그레인과 내추럴 라이팅이 가미된 일상 vlog 감성입니다.",
+    "레트로 8비트": "제한된 8비트 팔레트의 아케이드 게임 픽셀아트 그래픽 느낌을 재현합니다.",
+    "사이버펑크 네온": "네온 컬러 네온사인과 어두운 도시, 젖은 도로의 반사광을 고정합니다.",
+    "미니멀 뷰티 CF": "화이트 스페이스, 화장품/뷰티 정밀 매크로, 고급 스튜디오 하이라이트 느낌을 줍니다.",
+    "브이로그 일러스트 셀프": "실사 vlog 느낌의 캐릭터 위에 아기자기한 2D 일러스트 스티커를 합성한 스타일입니다.",
+    "와비사비 재팬 리얼": "오래된 목재, 린넨, 도자기 질감과 차분한 자연 채광의 정갈한 동양풍 감성을 적용합니다.",
 }
 DURATION_MAP = {"자동": 0, "15초": 15, "30초": 30, "60초": 60}
 
@@ -96,7 +126,7 @@ def run_environment_check() -> str:
     return "\n\n".join(lines)
 
 
-def analyze(title, script, mode_label, dur_label, dur_custom):
+def analyze(title, script, mode_label, visual_style_label, dur_label, dur_custom, char_lock):
     """대본 → 컷 → 프롬프트. 진행상황을 단계별로 yield 한다.
 
     outputs: (만들기_상태_md, shots_state, project_state)
@@ -125,6 +155,9 @@ def analyze(title, script, mode_label, dur_label, dur_custom):
         return
 
     mode = MODE_MAP.get(mode_label, "emotional")
+    visual_style = VISUAL_STYLE_MAP.get(visual_style_label, "")
+    effective_style = visual_style or mode
+
     if dur_label == "직접 입력":
         try:
             duration = max(0, int(dur_custom or 0))
@@ -136,7 +169,9 @@ def analyze(title, script, mode_label, dur_label, dur_custom):
     # 프로젝트 생성
     pm = project_manager.create_project(
         cfg["project_root"], title,
-        input_mode=mode, style_preset=mode,
+        input_mode=mode, style_preset=effective_style,
+        visual_style_preset=effective_style,
+        char_lock_prompt=(char_lock or "").strip(),
         target_duration=duration, cfg=cfg,
     )
     pm.save_text("script_original.txt", script.strip())
@@ -602,6 +637,10 @@ def enhance_single_prompt_ui(project_id, shot_number, char_lock=""):
     if not shot:
         return gr.skip(), f"컷 {shot_number}을 찾을 수 없습니다."
 
+    # fallback char_lock from project.json
+    if not char_lock:
+        char_lock = project.get("char_lock_prompt", "")
+
     # LTX-2 프롬프트 강화 (LLM 호출 — 연구소 탭 전용, 초기 생성과 분리)
     enhanced = ltx_prompt_enhancer_skill.enhance_prompt(
         cfg, pm, shot.get("korean_description", ""),
@@ -612,8 +651,17 @@ def enhance_single_prompt_ui(project_id, shot_number, char_lock=""):
     shot["ltx_prompt"] = enhanced["ltx_prompt"]
     shot["ltx_negative_prompt"] = enhanced["ltx_negative_prompt"]
 
+    # LTX 결과에도 style lock 재적용
+    single_shot_data = {"shots": [shot]}
+    visual_style_consistency_skill.apply_style_lock(
+        single_shot_data,
+        project.get("style_preset", ""),
+        char_lock=char_lock,
+        input_mode=project.get("input_mode", ""),
+    )
+
     # 채점 (규칙 기반)
-    score = prompt_quality_score.evaluate_prompt(enhanced["ltx_prompt"])
+    score = prompt_quality_score.evaluate_prompt(shot["ltx_prompt"])
     shot["prompt_quality_score"] = score
 
     # Deepy 팩 갱신
@@ -701,23 +749,27 @@ def save_lab_prompt_ui(project_id, num, ltx_prompt, neg_prompt, char_lock):
     if not project_id or num is None:
         return gr.skip(), "프로젝트를 먼저 선택해 주세요."
     cfg, pm, shots_data = _load_pm_shots(project_id)
+    project = pm.load_json("project.json")
     shot = next((s for s in shots_data["shots"] if s["shot_number"] == num), None)
     if not shot:
         return gr.skip(), "컷을 찾을 수 없습니다."
-        
+
+    if not char_lock:
+        char_lock = project.get("char_lock_prompt", "")
+
     shot["ltx_prompt"] = ltx_prompt
     shot["ltx_negative_prompt"] = neg_prompt
-    
+
     # 다시 채점
     score = prompt_quality_score.evaluate_prompt(ltx_prompt)
     shot["prompt_quality_score"] = score
-    
+
     # Deepy 팩 갱신
     shot["deepy_prompt_pack"] = wangp_deepy_bridge_skill.build_deepy_pack(shot, char_lock)
-    
+
     pm.save_json("shots.json", shots_data)
     wangp_deepy_bridge_skill.export_wangp_files(pm, shots_data, char_lock)
-    
+
     return shots_data["shots"], f"💾 컷 {num:03d}의 수동 변경 사항 및 Deepy 팩을 성공적으로 저장하고 품질 채점({score['overall']}점)을 갱신했습니다."
 
 
@@ -951,8 +1003,27 @@ def build_ui() -> gr.Blocks:
                         )
                     with gr.Column(scale=2):
                         mode_in = gr.Radio(
-                            list(MODE_MAP.keys()), value="감성 쇼츠", label="입력 모드 / 스타일",
+                            list(MODE_MAP.keys()), value="감성 쇼츠", label="콘텐츠 목적",
                         )
+                        with gr.Accordion("🎨 비주얼 스타일 프리셋", open=False):
+                            visual_style_in = gr.Radio(
+                                list(VISUAL_STYLE_MAP.keys()),
+                                value=VISUAL_STYLE_AUTO,
+                                label="비주얼 스타일",
+                            )
+                            style_preview_md = gr.Markdown(VISUAL_STYLE_PREVIEW[VISUAL_STYLE_AUTO])
+
+                            def _style_preview(label):
+                                return VISUAL_STYLE_PREVIEW.get(label, "선택한 스타일을 모든 컷의 프롬프트에 고정합니다.")
+
+                            visual_style_in.change(_style_preview, visual_style_in, style_preview_md)
+
+                        with gr.Accordion("🔒 스타일 잠금 설정", open=False):
+                            char_lock_in = gr.Textbox(
+                                label="캐릭터/브랜드 잠금",
+                                placeholder="예: Mochi, cream-colored long-haired Chihuahua, round eyes",
+                                lines=2,
+                            )
                         dur_in = gr.Radio(
                             ["자동", "15초", "30초", "60초", "직접 입력"],
                             value="자동", label="목표 길이",
@@ -1363,7 +1434,7 @@ def build_ui() -> gr.Blocks:
         )
         make_btn.click(
             analyze,
-            inputs=[title_in, script_in, mode_in, dur_in, dur_custom],
+            inputs=[title_in, script_in, mode_in, visual_style_in, dur_in, dur_custom, char_lock_in],
             outputs=[make_status, shots_state, project_state],
         ).then(
             refresh_lab_ui, inputs=[project_state], outputs=[lab_shot_dd]

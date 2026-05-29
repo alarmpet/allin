@@ -35,9 +35,11 @@ from skills import (  # noqa: E402
     script_parser_skill,
     shot_planner_skill,
     prompt_director_skill,
+    _common,
 )
 
 MODE_CHOICES = ["emotional", "product_cf", "info", "mochi", "senior"]
+STYLE_CHOICES = sorted(_common.STYLE_FILES.keys())
 
 
 # ── 출력 helper ────────────────────────────────────────────────
@@ -274,7 +276,8 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--script-file", help="대본 파일 경로(.txt)")
     m.add_argument("--mode", default="emotional", choices=MODE_CHOICES,
                    help="입력 모드/스타일 (기본: emotional)")
-    m.add_argument("--style", help="스타일 프리셋 직접 지정(선택, 기본은 mode와 동일)")
+    m.add_argument("--style", choices=STYLE_CHOICES,
+                   help="비주얼 스타일 프리셋 직접 지정(선택, 기본은 mode와 동일)")
     m.add_argument("--duration", default="auto",
                    help="목표 길이(초) 또는 auto (기본: auto)")
     return p
