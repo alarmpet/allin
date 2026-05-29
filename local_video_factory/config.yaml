@@ -50,6 +50,7 @@ ffprobe_path: "ffprobe"
 
 # ── 프로젝트 저장 위치 ──────────────────────────────────────────
 project_root: "./projects"
+prompt_library_path: "./prompt_library"
 
 # ── UI ──────────────────────────────────────────────────────────
 ui_type: "gradio"

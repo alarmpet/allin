@@ -629,50 +629,57 @@ def delete_project_ui(project_id, current_project_id):
 
 def enhance_single_prompt_ui(project_id, shot_number, char_lock=""):
     if not project_id or shot_number is None:
-        return gr.skip(), "프로젝트를 먼저 로드해 주세요."
+        yield gr.skip(), "프로젝트를 먼저 로드해 주세요."
+        return
     cfg, pm, shots_data = _load_pm_shots(project_id)
     project = pm.load_json("project.json")
 
     shot = next((s for s in shots_data["shots"] if s["shot_number"] == shot_number), None)
     if not shot:
-        return gr.skip(), f"컷 {shot_number}을 찾을 수 없습니다."
+        yield gr.skip(), f"컷 {shot_number}을 찾을 수 없습니다."
+        return
+
+    yield gr.skip(), f"⏳ 컷 {shot_number:03d} LTX-2 프롬프트 강화 중 (Ollama Qwen)..."
 
     # fallback char_lock from project.json
     if not char_lock:
         char_lock = project.get("char_lock_prompt", "")
 
     # LTX-2 프롬프트 강화 (LLM 호출 — 연구소 탭 전용, 초기 생성과 분리)
-    enhanced = ltx_prompt_enhancer_skill.enhance_prompt(
-        cfg, pm, shot.get("korean_description", ""),
-        shot.get("keywords", []), shot.get("emotion", "neutral"),
-        project.get("style_preset", ""), character_lock_prompt=char_lock,
-        duration=shot.get("duration", 5.875)
-    )
-    shot["ltx_prompt"] = enhanced["ltx_prompt"]
-    shot["ltx_negative_prompt"] = enhanced["ltx_negative_prompt"]
+    try:
+        enhanced = ltx_prompt_enhancer_skill.enhance_prompt(
+            cfg, pm, shot.get("korean_description", ""),
+            shot.get("keywords", []), shot.get("emotion", "neutral"),
+            project.get("style_preset", ""), character_lock_prompt=char_lock,
+            duration=shot.get("duration", 5.875)
+        )
+        shot["ltx_prompt"] = enhanced["ltx_prompt"]
+        shot["ltx_negative_prompt"] = enhanced["ltx_negative_prompt"]
 
-    # LTX 결과에도 style lock 재적용
-    single_shot_data = {"shots": [shot]}
-    visual_style_consistency_skill.apply_style_lock(
-        single_shot_data,
-        project.get("style_preset", ""),
-        char_lock=char_lock,
-        input_mode=project.get("input_mode", ""),
-    )
+        # LTX 결과에도 style lock 재적용
+        single_shot_data = {"shots": [shot]}
+        visual_style_consistency_skill.apply_style_lock(
+            single_shot_data,
+            project.get("style_preset", ""),
+            char_lock=char_lock,
+            input_mode=project.get("input_mode", ""),
+        )
 
-    # 채점 (규칙 기반)
-    score = prompt_quality_score.evaluate_prompt(shot["ltx_prompt"])
-    shot["prompt_quality_score"] = score
+        # 채점 (규칙 기반)
+        score = prompt_quality_score.evaluate_prompt(shot["ltx_prompt"])
+        shot["prompt_quality_score"] = score
 
-    # Deepy 팩 갱신
-    shot["deepy_prompt_pack"] = wangp_deepy_bridge_skill.build_deepy_pack(shot, char_lock)
+        # Deepy 팩 갱신
+        shot["deepy_prompt_pack"] = wangp_deepy_bridge_skill.build_deepy_pack(shot, char_lock)
 
-    # 저장
-    pm.save_json("shots.json", shots_data)
-    wangp_deepy_bridge_skill.export_wangp_files(pm, shots_data, char_lock)
+        # 저장
+        pm.save_json("shots.json", shots_data)
+        wangp_deepy_bridge_skill.export_wangp_files(pm, shots_data, char_lock)
 
-    # 2-tuple 반환 (shots_state, status_str)
-    return shots_data["shots"], f"✨ 컷 {shot_number:03d} LTX-2 강화 완료 · 품질 점수 {score['overall']}점"
+        # 2-tuple 반환 (shots_state, status_str)
+        yield shots_data["shots"], f"✨ 컷 {shot_number:03d} LTX-2 강화 완료 · 품질 점수 {score['overall']}점"
+    except Exception as e:
+        yield gr.skip(), f"❌ 에러 발생: {e}"
 
 
 def save_to_library_ui(project_id, shot_number, category, name):

@@ -7,7 +7,18 @@ from typing import Any, Dict
 
 
 def get_library_root() -> str:
-    """프로그램 루트의 prompt_library 폴더 경로."""
+    """config에 지정된 prompt_library_path 경로 사용. 로딩 실패 시 기본 상대 경로."""
+    try:
+        from . import config_loader
+        cfg = config_loader.load_config()
+        path = cfg.get("prompt_library_path")
+        if path:
+            if not os.path.isabs(path):
+                here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                return os.path.abspath(os.path.join(here, path))
+            return os.path.abspath(path)
+    except Exception:
+        pass
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(here, "prompt_library")
 

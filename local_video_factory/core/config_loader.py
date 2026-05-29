@@ -55,6 +55,7 @@ DEFAULTS: Dict[str, Any] = {
     "ffmpeg_path": "ffmpeg",
     "ffprobe_path": "ffprobe",
     "project_root": "./projects",
+    "prompt_library_path": "./prompt_library",
     "ui_type": "gradio",
 }
 
