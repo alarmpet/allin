@@ -971,7 +971,7 @@ def view_log(project_id, name):
         return f"(열지 못했어요: {e})"
 
 
-def build_ui() -> gr.Blocks:
+def build_ui(plugin_instance=None) -> gr.Blocks:
     with gr.Blocks(title="Local Video Factory") as demo:
         shots_state = gr.State([])
         project_state = gr.State(None)
@@ -1107,6 +1107,18 @@ def build_ui() -> gr.Blocks:
                                     label="negative prompt",
                                     lines=2, interactive=False, buttons=["copy"],
                                 )
+
+                            # WanGP 주입 버튼 (플러그인 모드일 때만 노출)
+                            if plugin_instance:
+                                active_prompt = ltx if (ltx and ltx != base) else base
+                                neg_prompt = s.get("negative_prompt", "")
+                                inject_btn = gr.Button("🎯 이 컷을 WanGP 프롬프트에 직접 주입", variant="secondary", size="sm")
+                                inject_btn.click(
+                                    fn=lambda p=active_prompt, n=neg_prompt: (p, n),
+                                    inputs=[],
+                                    outputs=[plugin_instance.prompt, plugin_instance.negative_prompt]
+                                )
+
                             # 연구소 탭 이동 안내 (이벤트 없는 정적 안내)
                             gr.Markdown(
                                 f"_🧪 프롬프트 강화·Deepy팩·라이브러리 저장은 **\"프롬프트 연구소\" 탭** → 컷 {s['shot_number']:03d} 선택_"
@@ -1147,6 +1159,14 @@ def build_ui() -> gr.Blocks:
                         lab_feedback = gr.Textbox(label="피드백 및 개선 제안", lines=6, interactive=False)
                         lab_copy_ready = gr.Textbox(label="WanGP 복사용 (Positive)", lines=4, interactive=False, buttons=["copy"])
                         lab_copy_neg = gr.Textbox(label="WanGP Negative Prompt 복사", lines=2, interactive=False, buttons=["copy"])
+                        
+                        if plugin_instance:
+                            lab_inject_btn = gr.Button("🎯 이 컷을 WanGP 프롬프트에 직접 주입", variant="secondary")
+                            lab_inject_btn.click(
+                                fn=lambda p, n: (p, n),
+                                inputs=[lab_ltx, lab_neg],
+                                outputs=[plugin_instance.prompt, plugin_instance.negative_prompt]
+                            )
                 
                 with gr.Row():
                     with gr.Accordion("📦 Deepy JSON 패키지 뷰어", open=False):
