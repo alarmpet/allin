@@ -359,6 +359,10 @@ allowed_commands[] / blocked_commands[]                      # 안전 whitelist 
 - **영상 생성 백엔드 변경**: watcher(폴더 감시) / wangp_queue(큐) 두 경로가 독립. 다른 생성기를 붙이면
   `assign_to_shot`로 컷에 mp4를 연결하는 계약만 지키면 ffmpeg 합성은 그대로 동작.
 - **설정 키 추가**: config.yaml + `config_loader.DEFAULTS`. UI에서 저장하려면 `update_config_values` 사용.
+- **WanGP 플러그인 이식**:
+  - `plugins/local_video_factory_plugin/plugin.py`가 진입점입니다. `WAN2GPPlugin`을 상속합니다.
+  - 외부 연동 시 `self.request_component`로 메인 앱의 Gradio 컴포넌트(`prompt`, `negative_prompt` 등)에 접근할 수 있으며, 이벤트를 추가 바인딩할 수 있습니다.
+  - WanGP와 `sys.path` 간 충돌을 방지하기 위해 플러그인 초기화 시 루트 모듈 폴더 경로를 `sys.path`에 선제 삽입(부트스트랩)합니다.
 
 ---
 
@@ -374,6 +378,8 @@ allowed_commands[] / blocked_commands[]                      # 안전 whitelist 
 | 6 | 저장/이어하기 | ✅ | list_projects, resume_project 상태 복원+탭전환 |
 | 7+8 | 진단/설정·전문가 모드 | ✅ | 진단 출력, config 저장 왕복, 파일/로그 뷰어 |
 | — | WanGP 큐 자동화 | ✅(로드 실증) | WanGP 실기동, Load Queue로 우리 zip 수용 확인 |
+| — | WanGP 플러그인 이식 | ✅(MVP 구현) | plugins/ 폴더 마커 생성, plugin.py 구현, Gradio 컴포넌트 접근 및 inject_btn 바인딩 검증 완료 |
+
 
 **미완/다음 작업 후보:**
 - 8GB VRAM에 맞는 WanGP 큐 템플릿 확정(사용자가 Save Queue한 파일을 `wan_gp_queue_template`에 지정 → 그 설정 복제). **진행 중.**
