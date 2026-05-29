@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import gradio as gr  # noqa: E402
 
-from core import config_loader, llm_client, project_manager  # noqa: E402
+from core import config_loader, llm_client, project_manager, prompt_library_manager  # noqa: E402
 from skills import (  # noqa: E402
     script_parser_skill,
     shot_planner_skill,
@@ -27,6 +27,9 @@ from skills import (  # noqa: E402
     supertonic_tts_skill,
     timeline_builder_skill,
     subtitle_sync_skill,
+    ltx_prompt_enhancer_skill,
+    prompt_quality_score,
+    wangp_deepy_bridge_skill,
 )
 from tools import supertonic_engine, watcher, ffmpeg_tools, wangp_queue  # noqa: E402
 
@@ -589,6 +592,135 @@ def delete_project_ui(project_id, current_project_id):
     return next_proj, dropdown_update, f"🗑️ '{project_id}' 프로젝트를 삭제했습니다."
 
 
+def enhance_single_prompt_ui(project_id, shot_number, char_lock=""):
+    if not project_id or shot_number is None:
+        return gr.skip(), gr.skip(), "프로젝트를 먼저 로드해 주세요."
+    cfg, pm, shots_data = _load_pm_shots(project_id)
+    project = pm.load_json("project.json")
+    
+    shot = next((s for s in shots_data["shots"] if s["shot_number"] == shot_number), None)
+    if not shot:
+        return gr.skip(), gr.skip(), f"컷 {shot_number}을 찾을 수 없습니다."
+        
+    # LTX-2 프롬프트 강화
+    enhanced = ltx_prompt_enhancer_skill.enhance_prompt(
+        cfg, pm, shot.get("korean_description", ""),
+        shot.get("keywords", []), shot.get("emotion", "neutral"),
+        project.get("style_preset", ""), character_lock_prompt=char_lock,
+        duration=shot.get("duration", 5.875)
+    )
+    shot["ltx_prompt"] = enhanced["ltx_prompt"]
+    shot["ltx_negative_prompt"] = enhanced["ltx_negative_prompt"]
+    
+    # 채점 및 수동 개선 반영
+    score = prompt_quality_score.evaluate_prompt(enhanced["ltx_prompt"])
+    shot["prompt_quality_score"] = score
+    
+    # Deepy 팩 갱신
+    shot["deepy_prompt_pack"] = wangp_deepy_bridge_skill.build_deepy_pack(shot, char_lock)
+    
+    # 개별 파일 저장
+    pm.save_json("shots.json", shots_data)
+    wangp_deepy_bridge_skill.export_wangp_files(pm, shots_data, char_lock)
+    
+    # 갱신된 shots 리스트 반환
+    return shots_data["shots"], shots_data["shots"], f"✨ 컷 {shot_number:03d}의 프롬프트를 LTX-2 규격으로 강화하고 품질 채점({score['overall']}점)을 마쳤습니다!"
+
+
+def save_to_library_ui(project_id, shot_number, category, name):
+    if not project_id or shot_number is None:
+        return "프로젝트 또는 컷을 지정해 주세요."
+    cfg, pm, shots_data = _load_pm_shots(project_id)
+    shot = next((s for s in shots_data["shots"] if s["shot_number"] == shot_number), None)
+    if not shot:
+        return "지정한 컷 데이터를 찾을 수 없습니다."
+        
+    pos = shot.get("ltx_prompt", shot.get("english_video_prompt", ""))
+    neg = shot.get("ltx_negative_prompt", shot.get("negative_prompt", ""))
+    
+    if category == "캐릭터 락":
+        path = prompt_library_manager.save_character_prompt(name, pos)
+    elif category == "스타일 프리셋":
+        path = prompt_library_manager.save_style_prompt(name, pos, neg)
+    else:
+        path = prompt_library_manager.save_success_case(project_id, shot_number, shot)
+        
+    return f"💾 성공 프롬프트를 [{category}]로 '{name}' 이름으로 저장했습니다.\n경로: {os.path.basename(path)}"
+
+
+def refresh_lab_ui(project_id):
+    if not project_id:
+        return gr.update(choices=[], value=None)
+    cfg, pm, shots_data = _load_pm_shots(project_id)
+    nums = [s["shot_number"] for s in shots_data["shots"]]
+    if not nums:
+        return gr.update(choices=[], value=None)
+    return gr.update(choices=nums, value=nums[0])
+
+
+def on_lab_shot_change(project_id, num):
+    if not project_id or num is None:
+        return "", "", "", "#### 📊 품질 점수: -", "", "", ""
+    cfg, pm, shots_data = _load_pm_shots(project_id)
+    shot = next((s for s in shots_data["shots"] if s["shot_number"] == num), None)
+    if not shot:
+        return "", "", "", "#### 📊 품질 점수: -", "", "", ""
+    
+    base = shot.get("base_prompt", shot.get("english_video_prompt", ""))
+    ltx = shot.get("ltx_prompt", base)
+    neg = shot.get("ltx_negative_prompt", shot.get("negative_prompt", ""))
+    
+    # 채점
+    score = shot.get("prompt_quality_score", {})
+    if not score or score.get("overall", 0) == 0:
+        score = prompt_quality_score.evaluate_prompt(ltx)
+        
+    score_md = f"#### 📊 품질 점수: **{score.get('overall', 0)}점**"
+    feedback = []
+    if score.get("issues"):
+        feedback.append("■ 발견된 이슈:")
+        for iss in score["issues"]:
+            feedback.append(f"- {iss}")
+    if score.get("suggestions"):
+        feedback.append("\n■ 개선 제안:")
+        for sug in score["suggestions"]:
+            feedback.append(f"- {sug}")
+    feedback_str = "\n".join(feedback) if feedback else "최고 등급의 프롬프트입니다!"
+    
+    pack = shot.get("deepy_prompt_pack", {})
+    if not pack or not pack.get("positive_prompt"):
+        pack = wangp_deepy_bridge_skill.build_deepy_pack(shot)
+        
+    copy_ready = pack.get("copy_ready_prompt", "")
+    pack_str = json.dumps(pack, ensure_ascii=False, indent=2)
+    
+    return base, ltx, neg, score_md, feedback_str, copy_ready, pack_str
+
+
+def save_lab_prompt_ui(project_id, num, ltx_prompt, neg_prompt, char_lock):
+    if not project_id or num is None:
+        return gr.skip(), "프로젝트를 먼저 선택해 주세요."
+    cfg, pm, shots_data = _load_pm_shots(project_id)
+    shot = next((s for s in shots_data["shots"] if s["shot_number"] == num), None)
+    if not shot:
+        return gr.skip(), "컷을 찾을 수 없습니다."
+        
+    shot["ltx_prompt"] = ltx_prompt
+    shot["ltx_negative_prompt"] = neg_prompt
+    
+    # 다시 채점
+    score = prompt_quality_score.evaluate_prompt(ltx_prompt)
+    shot["prompt_quality_score"] = score
+    
+    # Deepy 팩 갱신
+    shot["deepy_prompt_pack"] = wangp_deepy_bridge_skill.build_deepy_pack(shot, char_lock)
+    
+    pm.save_json("shots.json", shots_data)
+    wangp_deepy_bridge_skill.export_wangp_files(pm, shots_data, char_lock)
+    
+    return shots_data["shots"], f"💾 컷 {num:03d}의 수동 변경 사항 및 Deepy 팩을 성공적으로 저장하고 품질 채점({score['overall']}점)을 갱신했습니다."
+
+
 def _tts_view_from(pm, shots_data, timeline):
     """이어하기 시 음성 탭 미리듣기용 state 재구성."""
     over = {e["shot_number"]: e["over_limit"] for e in (timeline or {}).get("shots", [])}
@@ -846,12 +978,6 @@ def build_ui() -> gr.Blocks:
                 make_btn = gr.Button("🎬 분석하고 컷 만들기", variant="primary", size="lg")
                 make_status = gr.Markdown()
 
-                make_btn.click(
-                    analyze,
-                    inputs=[title_in, script_in, mode_in, dur_in, dur_custom],
-                    outputs=[make_status, shots_state, project_state],
-                )
-
             # ── 탭 2: 컷 보드 ─────────────────────────────
             with gr.Tab("🎞️ 컷 보드", id="board"):
                 with gr.Row():
@@ -892,6 +1018,54 @@ def build_ui() -> gr.Blocks:
                                     label="negative prompt",
                                     lines=2, interactive=False, buttons=["copy"],
                                 )
+                            
+                            # 컷 카드 액션 버튼 추가
+                            with gr.Row():
+                                enhance_card_btn = gr.Button("✨ LTX2 프롬프트 개선", variant="secondary")
+                                copy_ready_btn = gr.Button("📋 WanGP용 복사", variant="secondary")
+                                show_pack_btn = gr.Button("📦 Deepy Pack 보기", variant="secondary")
+                                score_card_btn = gr.Button("📊 품질 점수", variant="secondary")
+                                save_lib_card_btn = gr.Button("💾 성공 프롬프트 저장", variant="secondary")
+                            
+                            card_status = gr.Markdown()
+                            
+                            # 카드 내 버튼 이벤트 바인딩
+                            def _enhance_card_fn(proj_id, shot_num=s["shot_number"]):
+                                _, new_shots, msg = enhance_single_prompt_ui(proj_id, shot_num)
+                                return new_shots, msg
+                            
+                            enhance_card_btn.click(
+                                _enhance_card_fn,
+                                inputs=[project_state],
+                                outputs=[shots_state, card_status]
+                            )
+                            
+                            def _copy_ready_fn(proj_id, shot_num=s["shot_number"]):
+                                if not proj_id:
+                                    return "프로젝트를 먼저 로드해 주세요."
+                                _, _, _, _, _, copy_ready, _ = on_lab_shot_change(proj_id, shot_num)
+                                return f"📋 복사할 텍스트:\n\n{copy_ready}"
+                            copy_ready_btn.click(_copy_ready_fn, inputs=[project_state], outputs=[card_status])
+                            
+                            def _show_pack_fn(proj_id, shot_num=s["shot_number"]):
+                                if not proj_id:
+                                    return "프로젝트를 먼저 로드해 주세요."
+                                _, _, _, _, _, _, pack_str = on_lab_shot_change(proj_id, shot_num)
+                                return f"📦 Deepy Pack JSON:\n```json\n{pack_str}\n```"
+                            show_pack_btn.click(_show_fn := _show_pack_fn, inputs=[project_state], outputs=[card_status])
+                            
+                            def _score_card_fn(proj_id, shot_num=s["shot_number"]):
+                                if not proj_id:
+                                    return "프로젝트를 먼저 로드해 주세요."
+                                _, _, _, score_md, feedback, _, _ = on_lab_shot_change(proj_id, shot_num)
+                                return f"{score_md}\n\n{feedback}"
+                            score_card_btn.click(_score_card_fn, inputs=[project_state], outputs=[card_status])
+                            
+                            def _save_lib_card_fn(proj_id, shot_num=s["shot_number"]):
+                                if not proj_id:
+                                    return "프로젝트를 먼저 로드해 주세요."
+                                return save_to_library_ui(proj_id, shot_num, "성공 케이스", f"shot_{shot_num:03d}")
+                            save_lib_card_btn.click(_save_lib_card_fn, inputs=[project_state], outputs=[card_status])
 
                     if expert:
                         gr.Markdown("---\n#### 🛠️ shots.json (전문가)")
@@ -900,7 +1074,78 @@ def build_ui() -> gr.Blocks:
                             language="json",
                         )
 
-            # ── 탭 3: 음성/자막 ───────────────────────────
+            # ── 탭 3: 🧪 프롬프트 연구소 ───────────────────
+            with gr.Tab("🧪 프롬프트 연구소", id="prompt_lab"):
+                gr.Markdown("비디오 생성 프롬프트를 LTX-2 / WanGP 규격에 맞춰 미세 조정하고 검사하는 전용 공간입니다.")
+                with gr.Row():
+                    lab_shot_dd = gr.Dropdown(label="선택된 컷", choices=[], scale=2)
+                    lab_refresh_btn = gr.Button("🔄 컷 목록 새로고침", scale=1)
+                
+                with gr.Row():
+                    with gr.Column(scale=3):
+                        lab_char_lock = gr.Textbox(
+                            label="캐릭터 락 프롬프트 (예: Mochi, red hoodie, white dog)",
+                            placeholder="이 컷이나 프로젝트 전체에 고정할 캐릭터 특성을 적으세요.",
+                            lines=1
+                        )
+                        lab_base = gr.Textbox(label="기본 대본 프롬프트 (Base)", lines=3, interactive=False)
+                        lab_ltx = gr.Textbox(label="LTX-2 강화 프롬프트 (Positive)", lines=4, interactive=True)
+                        lab_neg = gr.Textbox(label="LTX-2 부정 프롬프트 (Negative)", lines=2, interactive=True)
+                        
+                        with gr.Row():
+                            lab_enhance_btn = gr.Button("🪄 LTX-2 규격 자동 강화", variant="primary")
+                            lab_save_btn = gr.Button("💾 변경사항 및 Deepy 팩 저장", variant="secondary")
+                            
+                    with gr.Column(scale=2):
+                        lab_score_md = gr.Markdown("#### 📊 품질 점수: -")
+                        lab_feedback = gr.Textbox(label="피드백 및 개선 제안", lines=6, interactive=False)
+                        lab_copy_ready = gr.Textbox(label="WanGP 바로 복사용 텍스트", lines=4, interactive=False, buttons=["copy"])
+                
+                with gr.Row():
+                    with gr.Accordion("📦 Deepy JSON 패키지 뷰어", open=False):
+                        lab_pack_json = gr.Code(label="wangp_deepy_pack_NNN.json", language="json")
+                
+                with gr.Row():
+                    with gr.Accordion("💾 성공 프롬프트 라이브러리에 백업", open=False):
+                        with gr.Row():
+                            lib_category = gr.Radio(["캐릭터 락", "스타일 프리셋", "성공 케이스"], value="성공 케이스", label="라이브러리 분류")
+                            lib_name = gr.Textbox(label="보관 명칭", placeholder="예: mochi_smile_natural")
+                            lib_save_btn = gr.Button("📁 라이브러리 저장", variant="primary")
+                        lib_status = gr.Markdown()
+                        
+                        lib_save_btn.click(
+                            save_to_library_ui,
+                            inputs=[project_state, lab_shot_dd, lib_category, lib_name],
+                            outputs=[lib_status]
+                        )
+
+                # 이벤트 바인딩
+                lab_refresh_btn.click(refresh_lab_ui, inputs=[project_state], outputs=[lab_shot_dd])
+                lab_shot_dd.change(
+                    on_lab_shot_change,
+                    inputs=[project_state, lab_shot_dd],
+                    outputs=[lab_base, lab_ltx, lab_neg, lab_score_md, lab_feedback, lab_copy_ready, lab_pack_json]
+                )
+                lab_enhance_btn.click(
+                    enhance_single_prompt_ui,
+                    inputs=[project_state, lab_shot_dd, lab_char_lock],
+                    outputs=[shots_state, shots_state, lib_status]
+                ).then(
+                    on_lab_shot_change,
+                    inputs=[project_state, lab_shot_dd],
+                    outputs=[lab_base, lab_ltx, lab_neg, lab_score_md, lab_feedback, lab_copy_ready, lab_pack_json]
+                )
+                lab_save_btn.click(
+                    save_lab_prompt_ui,
+                    inputs=[project_state, lab_shot_dd, lab_ltx, lab_neg, lab_char_lock],
+                    outputs=[shots_state, lib_status]
+                ).then(
+                    on_lab_shot_change,
+                    inputs=[project_state, lab_shot_dd],
+                    outputs=[lab_base, lab_ltx, lab_neg, lab_score_md, lab_feedback, lab_copy_ready, lab_pack_json]
+                )
+
+            # ── 탭 4: 음성/자막 ───────────────────────────
             with gr.Tab("🔊 음성/자막", id="audio"):
                 gr.Markdown("컷별 나레이션(Supertonic3)과 자막을 만들고 미리 들어보세요.")
                 tts_engine_md = gr.Markdown()
@@ -944,7 +1189,7 @@ def build_ui() -> gr.Blocks:
                     outputs=[tts_status, tts_state, srt_box],
                 )
 
-            # ── 탭 4: 영상 생성 (WanGP 도우미) ─────────────
+            # ── 탭 5: 영상 생성 (WanGP 도우미) ─────────────
             with gr.Tab("🎬 영상 생성", id="video"):
                 try:
                     _cfg0 = config_loader.load_config()
@@ -1125,14 +1370,25 @@ def build_ui() -> gr.Blocks:
         resume_btn.click(
             resume_project, inputs=[project_dd],
             outputs=[project_state, shots_state, tts_state, start_status, main_tabs],
+        ).then(
+            refresh_lab_ui, inputs=[project_state], outputs=[lab_shot_dd]
         )
         new_btn.click(
             start_new,
             outputs=[project_state, shots_state, tts_state, start_status, main_tabs],
+        ).then(
+            refresh_lab_ui, inputs=[project_state], outputs=[lab_shot_dd]
         )
         delete_btn.click(
             delete_project_ui, inputs=[project_dd, project_state],
             outputs=[project_state, project_dd, start_status],
+        )
+        make_btn.click(
+            analyze,
+            inputs=[title_in, script_in, mode_in, dur_in, dur_custom],
+            outputs=[make_status, shots_state, project_state],
+        ).then(
+            refresh_lab_ui, inputs=[project_state], outputs=[lab_shot_dd]
         )
 
     return demo

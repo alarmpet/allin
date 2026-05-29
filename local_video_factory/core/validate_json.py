@@ -170,4 +170,27 @@ def validate_shots(data: Any) -> Dict[str, Any]:
         shot.setdefault("negative_prompt", "")
         shot.setdefault("tts_text", "")
         shot.setdefault("status", "planned")
+        
+        # 신규 프롬프트 업그레이드 필드 기본값 보정
+        shot.setdefault("base_prompt", "")
+        shot.setdefault("ltx_prompt", "")
+        shot.setdefault("wangp_prompt", "")
+        shot.setdefault("deepy_prompt_pack", {
+            "use_prompt_enhancer": True,
+            "use_deepy": True,
+            "model_target": "LTX-2",
+            "positive_prompt": "",
+            "negative_prompt": "",
+            "camera_hint": "",
+            "motion_hint": "",
+            "lighting_hint": "",
+            "copy_ready_prompt": ""
+        })
+        shot.setdefault("prompt_quality_score", {
+            "overall": 0,
+            "issues": [],
+            "suggestions": []
+        })
+        shot.setdefault("prompt_version", 1)
+        shot.setdefault("best_prompt_id", "")
     return data

@@ -11,6 +11,9 @@ from typing import Any, Dict, List
 
 from core import llm_client
 from . import _common
+from . import ltx_prompt_enhancer_skill
+from . import prompt_quality_score
+from . import wangp_deepy_bridge_skill
 
 _PROMPT_TAIL = (
     "vertical short-form composition"
@@ -84,10 +87,34 @@ def generate_prompts(cfg: Dict[str, Any], pm, project: Dict[str, Any],
         s["english_video_prompt"] = eng
         s["negative_prompt"] = negative
         s["status"] = "prompt_ready"
+        
+        # 신규 프롬프트 연구소 필드 연동
+        s["base_prompt"] = eng
+        
+        # LTX-2 프롬프트 강화기 적용
+        enhanced = ltx_prompt_enhancer_skill.enhance_prompt(
+            cfg, pm, s.get("korean_description", ""),
+            s.get("keywords", []), s.get("emotion", "neutral"),
+            project.get("style_preset", ""), duration=s.get("duration", 5.875)
+        )
+        s["ltx_prompt"] = enhanced["ltx_prompt"]
+        s["ltx_negative_prompt"] = enhanced["ltx_negative_prompt"]
+        
+        # 품질 점수 평가
+        score = prompt_quality_score.evaluate_prompt(enhanced["ltx_prompt"])
+        s["prompt_quality_score"] = score
+        
+        # Deepy 팩 생성
+        s["deepy_prompt_pack"] = wangp_deepy_bridge_skill.build_deepy_pack(s)
+        
+        # 기본 텍스트 파일 저장
         pm.save_text(f"prompt_{num:03d}.txt", eng + "\n")
 
     # 공통 negative prompt 파일
     pm.save_text("negative_prompt.txt", negative + "\n")
+
+    # WanGP / Deepy 개별 복사용 파일들 일괄 빌드 및 md 저장
+    wangp_deepy_bridge_skill.export_wangp_files(pm, shots_data)
 
     pm.save_json("shots.json", shots_data)
     return shots_data
