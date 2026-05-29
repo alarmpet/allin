@@ -594,15 +594,15 @@ def delete_project_ui(project_id, current_project_id):
 
 def enhance_single_prompt_ui(project_id, shot_number, char_lock=""):
     if not project_id or shot_number is None:
-        return gr.skip(), gr.skip(), "프로젝트를 먼저 로드해 주세요."
+        return gr.skip(), "프로젝트를 먼저 로드해 주세요."
     cfg, pm, shots_data = _load_pm_shots(project_id)
     project = pm.load_json("project.json")
-    
+
     shot = next((s for s in shots_data["shots"] if s["shot_number"] == shot_number), None)
     if not shot:
-        return gr.skip(), gr.skip(), f"컷 {shot_number}을 찾을 수 없습니다."
-        
-    # LTX-2 프롬프트 강화
+        return gr.skip(), f"컷 {shot_number}을 찾을 수 없습니다."
+
+    # LTX-2 프롬프트 강화 (LLM 호출 — 연구소 탭 전용, 초기 생성과 분리)
     enhanced = ltx_prompt_enhancer_skill.enhance_prompt(
         cfg, pm, shot.get("korean_description", ""),
         shot.get("keywords", []), shot.get("emotion", "neutral"),
@@ -611,20 +611,20 @@ def enhance_single_prompt_ui(project_id, shot_number, char_lock=""):
     )
     shot["ltx_prompt"] = enhanced["ltx_prompt"]
     shot["ltx_negative_prompt"] = enhanced["ltx_negative_prompt"]
-    
-    # 채점 및 수동 개선 반영
+
+    # 채점 (규칙 기반)
     score = prompt_quality_score.evaluate_prompt(enhanced["ltx_prompt"])
     shot["prompt_quality_score"] = score
-    
+
     # Deepy 팩 갱신
     shot["deepy_prompt_pack"] = wangp_deepy_bridge_skill.build_deepy_pack(shot, char_lock)
-    
-    # 개별 파일 저장
+
+    # 저장
     pm.save_json("shots.json", shots_data)
     wangp_deepy_bridge_skill.export_wangp_files(pm, shots_data, char_lock)
-    
-    # 갱신된 shots 리스트 반환
-    return shots_data["shots"], shots_data["shots"], f"✨ 컷 {shot_number:03d}의 프롬프트를 LTX-2 규격으로 강화하고 품질 채점({score['overall']}점)을 마쳤습니다!"
+
+    # 2-tuple 반환 (shots_state, status_str)
+    return shots_data["shots"], f"✨ 컷 {shot_number:03d} LTX-2 강화 완료 · 품질 점수 {score['overall']}점"
 
 
 def save_to_library_ui(project_id, shot_number, category, name):
@@ -999,9 +999,11 @@ def build_ui() -> gr.Blocks:
                     for s in shots:
                         with gr.Group():
                             status_ko = SHOT_STATUS_KO.get(s.get("status", ""), s.get("status", ""))
+                            score = s.get("prompt_quality_score", {}).get("overall", 0)
+                            score_label = f"  ·  📊 {score}점" if score else ""
                             gr.Markdown(
                                 f"#### 컷 {s['shot_number']:03d}  ·  약 {s.get('duration', 0)}초  "
-                                f"·  {status_ko}"
+                                f"·  {status_ko}{score_label}"
                             )
                             gr.Markdown(
                                 f"**장면:** {s.get('korean_description', '')}\n\n"
@@ -1009,63 +1011,28 @@ def build_ui() -> gr.Blocks:
                             )
                             gr.Textbox(
                                 value=s.get("english_video_prompt", ""),
-                                label="영상 프롬프트 (오른쪽 복사 아이콘 클릭)",
+                                label="영상 프롬프트 (WanGP 복붙용 · 복사 아이콘 클릭)",
                                 lines=3, interactive=False, buttons=["copy"],
                             )
+                            # LTX-2 강화 프롬프트가 있고 base와 다르면 별도 표시
+                            ltx = s.get("ltx_prompt", "")
+                            base = s.get("base_prompt", s.get("english_video_prompt", ""))
+                            if ltx and ltx != base:
+                                gr.Textbox(
+                                    value=ltx,
+                                    label="✨ LTX-2 강화 프롬프트 (복사 아이콘 클릭)",
+                                    lines=3, interactive=False, buttons=["copy"],
+                                )
                             if expert:
                                 gr.Textbox(
                                     value=s.get("negative_prompt", ""),
                                     label="negative prompt",
                                     lines=2, interactive=False, buttons=["copy"],
                                 )
-                            
-                            # 컷 카드 액션 버튼 추가
-                            with gr.Row():
-                                enhance_card_btn = gr.Button("✨ LTX2 프롬프트 개선", variant="secondary")
-                                copy_ready_btn = gr.Button("📋 WanGP용 복사", variant="secondary")
-                                show_pack_btn = gr.Button("📦 Deepy Pack 보기", variant="secondary")
-                                score_card_btn = gr.Button("📊 품질 점수", variant="secondary")
-                                save_lib_card_btn = gr.Button("💾 성공 프롬프트 저장", variant="secondary")
-                            
-                            card_status = gr.Markdown()
-                            
-                            # 카드 내 버튼 이벤트 바인딩
-                            def _enhance_card_fn(proj_id, shot_num=s["shot_number"]):
-                                _, new_shots, msg = enhance_single_prompt_ui(proj_id, shot_num)
-                                return new_shots, msg
-                            
-                            enhance_card_btn.click(
-                                _enhance_card_fn,
-                                inputs=[project_state],
-                                outputs=[shots_state, card_status]
+                            # 연구소 탭 이동 안내 (이벤트 없는 정적 안내)
+                            gr.Markdown(
+                                f"_🧪 프롬프트 강화·Deepy팩·라이브러리 저장은 **\"프롬프트 연구소\" 탭** → 컷 {s['shot_number']:03d} 선택_"
                             )
-                            
-                            def _copy_ready_fn(proj_id, shot_num=s["shot_number"]):
-                                if not proj_id:
-                                    return "프로젝트를 먼저 로드해 주세요."
-                                _, _, _, _, _, copy_ready, _ = on_lab_shot_change(proj_id, shot_num)
-                                return f"📋 복사할 텍스트:\n\n{copy_ready}"
-                            copy_ready_btn.click(_copy_ready_fn, inputs=[project_state], outputs=[card_status])
-                            
-                            def _show_pack_fn(proj_id, shot_num=s["shot_number"]):
-                                if not proj_id:
-                                    return "프로젝트를 먼저 로드해 주세요."
-                                _, _, _, _, _, _, pack_str = on_lab_shot_change(proj_id, shot_num)
-                                return f"📦 Deepy Pack JSON:\n```json\n{pack_str}\n```"
-                            show_pack_btn.click(_show_fn := _show_pack_fn, inputs=[project_state], outputs=[card_status])
-                            
-                            def _score_card_fn(proj_id, shot_num=s["shot_number"]):
-                                if not proj_id:
-                                    return "프로젝트를 먼저 로드해 주세요."
-                                _, _, _, score_md, feedback, _, _ = on_lab_shot_change(proj_id, shot_num)
-                                return f"{score_md}\n\n{feedback}"
-                            score_card_btn.click(_score_card_fn, inputs=[project_state], outputs=[card_status])
-                            
-                            def _save_lib_card_fn(proj_id, shot_num=s["shot_number"]):
-                                if not proj_id:
-                                    return "프로젝트를 먼저 로드해 주세요."
-                                return save_to_library_ui(proj_id, shot_num, "성공 케이스", f"shot_{shot_num:03d}")
-                            save_lib_card_btn.click(_save_lib_card_fn, inputs=[project_state], outputs=[card_status])
 
                     if expert:
                         gr.Markdown("---\n#### 🛠️ shots.json (전문가)")
@@ -1095,11 +1062,13 @@ def build_ui() -> gr.Blocks:
                         with gr.Row():
                             lab_enhance_btn = gr.Button("🪄 LTX-2 규격 자동 강화", variant="primary")
                             lab_save_btn = gr.Button("💾 변경사항 및 Deepy 팩 저장", variant="secondary")
-                            
+                        lab_enhance_status = gr.Markdown()
+
                     with gr.Column(scale=2):
                         lab_score_md = gr.Markdown("#### 📊 품질 점수: -")
                         lab_feedback = gr.Textbox(label="피드백 및 개선 제안", lines=6, interactive=False)
-                        lab_copy_ready = gr.Textbox(label="WanGP 바로 복사용 텍스트", lines=4, interactive=False, buttons=["copy"])
+                        lab_copy_ready = gr.Textbox(label="WanGP 복사용 (Positive)", lines=4, interactive=False, buttons=["copy"])
+                        lab_copy_neg = gr.Textbox(label="WanGP Negative Prompt 복사", lines=2, interactive=False, buttons=["copy"])
                 
                 with gr.Row():
                     with gr.Accordion("📦 Deepy JSON 패키지 뷰어", open=False):
@@ -1120,20 +1089,29 @@ def build_ui() -> gr.Blocks:
                         )
 
                 # 이벤트 바인딩
+
+                def _update_neg_copy(neg_val):
+                    """neg 텍스트박스 → copy_neg 복사 박스 동기화."""
+                    return neg_val
+
                 lab_refresh_btn.click(refresh_lab_ui, inputs=[project_state], outputs=[lab_shot_dd])
                 lab_shot_dd.change(
                     on_lab_shot_change,
                     inputs=[project_state, lab_shot_dd],
                     outputs=[lab_base, lab_ltx, lab_neg, lab_score_md, lab_feedback, lab_copy_ready, lab_pack_json]
+                ).then(
+                    _update_neg_copy, inputs=[lab_neg], outputs=[lab_copy_neg]
                 )
                 lab_enhance_btn.click(
                     enhance_single_prompt_ui,
                     inputs=[project_state, lab_shot_dd, lab_char_lock],
-                    outputs=[shots_state, shots_state, lib_status]
+                    outputs=[shots_state, lab_enhance_status]
                 ).then(
                     on_lab_shot_change,
                     inputs=[project_state, lab_shot_dd],
                     outputs=[lab_base, lab_ltx, lab_neg, lab_score_md, lab_feedback, lab_copy_ready, lab_pack_json]
+                ).then(
+                    _update_neg_copy, inputs=[lab_neg], outputs=[lab_copy_neg]
                 )
                 lab_save_btn.click(
                     save_lab_prompt_ui,

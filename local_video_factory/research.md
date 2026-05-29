@@ -69,11 +69,14 @@ local_video_factory/
 │   ├── validate_json.py     # LLM JSON 코드블록 제거/복구/스키마 검증
 │   └── project_manager.py   # 프로젝트 폴더·project.json·status.json, 목록/이어하기
 │
-├── skills/                  # 파이프라인 단계 (대본→컷→프롬프트→TTS→자막→타임라인)
+├── skills/                  # 대본분석 → 컷분해 → 프롬프트 생성 + LTX-2 강화 + 품질점수 + WanGP/Deepy 팩
 │   ├── _common.py           # 프롬프트 템플릿 로딩 + 스타일 컨텍스트 매핑
 │   ├── script_parser_skill.py   # 대본 → script_segments.json  (LLM)
 │   ├── shot_planner_skill.py     # segments → shots.json (6초 컷, 타이밍은 코드가 결정) (LLM)
-│   ├── prompt_director_skill.py  # shots → prompt_XXX.txt + negative_prompt.txt (LLM, 1회 배치)
+│   ├── prompt_director_skill.py  # shots → prompt_XXX.txt + negative_prompt.txt (LLM, 1회 배치) + 규칙기반 품질채점 + Deepy팩
+│   ├── ltx_prompt_enhancer_skill.py  # LTX-2 특화 프롬프트 강화 (LLM, 연구소 탭 전용)
+│   ├── prompt_quality_score.py       # 프롬프트 품질 6항목 규칙 채점 (LLM 없음)
+│   ├── wangp_deepy_bridge_skill.py   # WanGP/Deepy JSON팩 + 배치 md 생성 (LLM 없음)
 │   ├── supertonic_tts_skill.py   # 컷별 나레이션 → audio/audio_XXX.wav (제너레이터)
 │   ├── timeline_builder_skill.py # 영상/음성 길이 정렬 → timeline.json (+길이초과 경고)
 │   └── subtitle_sync_skill.py    # → captions.srt (UTF-8-SIG)
@@ -98,6 +101,7 @@ local_video_factory/
         ├── script_segments.json shots.json timeline.json status.json
         ├── prompt_001.txt ... negative_prompt.txt captions.srt
         ├── wangp_queue.zip wangp_queue.json   (큐 생성 시)
+        ├── wangp_deepy_pack_NNN.json wangp_prompt_NNN.txt wangp_batch_prompts.md  (Deepy 팩)
         ├── audio/  audio_001.wav ...
         ├── outputs/ shot_001.mp4 ... final.mp4  (_clips/ 는 합성 중 임시, 자동삭제)
         └── logs/   ollama.log tts.log watcher.log ffmpeg.log error.log
@@ -268,8 +272,7 @@ zip 내부에 queue.json = [{"id":<int>, "params":{... WanGP task params ...}}]
 - `build_ui()->gr.Blocks`. 상단: 인트로 + "환경 점검" 아코디언. 본문은 `with gr.Tabs() as main_tabs:`.
 - **States**: `shots_state`(컷 보드용 list), `project_state`(현재 project_id), `tts_state`(음성 미리듣기 list),
   탭4의 `watch_known`(감시 기준선).
-- **탭(id)**: `start`(시작/이어하기) · `make`(만들기) · `board`(컷 보드) · `audio`(음성/자막) ·
-  `video`(영상 생성) · `final`(최종 출력) · `settings`(진단/설정).
+- **탭(id)**: `start`(시작/이어하기) · `make`(만들기) · `board`(컷 보드) · `prompt_lab`(프롬프트 연구소) · `audio`(음성/자막) · `video`(영상 생성) · `final`(최종 출력) · `settings`(진단/설정).
 - 동적 카드/오디오/영상 미리보기는 `@gr.render(inputs=[state])`로 렌더(상태 변경 시 재렌더).
 - 긴 작업은 **제너레이터 콜백**으로 진행률 yield. 진행 중 미변경 출력은 `gr.skip()`.
 - 탭 전환은 콜백이 `gr.Tabs(selected="board")` 반환(시작 탭의 이어하기/새 영상). 시작탭 이벤트는
@@ -281,6 +284,8 @@ zip 내부에 queue.json = [{"id":<int>, "params":{... WanGP task params ...}}]
 - 음성: `check_tts_engine()`, `make_tts(project_id,voice)` 제너레이터 → (status, tts_state, srt_box)
 - 영상: `refresh_video/on_cur_shot_change/start_watch/stop_watch/on_tick/pick_file_assign/open_wangp_folder/make_wangp_queue`
   - `on_tick`은 `gr.Timer(3.0)`의 tick에 연결(감시 폴링).
+- 프롬프트 연구소: `refresh_lab_ui/on_lab_shot_change/enhance_single_prompt_ui/save_lab_prompt_ui/save_to_library_ui`
+  - `enhance_single_prompt_ui`는 LLM 호출(연구소 탭 전용). 주 파이프라인(`generate_prompts`)에서는 LLM 호출 없이 구칙 기반 품질점수+Deepy팩만 실행.
 - 최종: `final_status/make_final(gen)/open_result`
 - 진단/설정: `run_full_diagnostics/get_installed_models/save_model/save_paths/save_video_settings`
   + 전문가 뷰어 `list_project_files/view_file/list_log_files/view_log`

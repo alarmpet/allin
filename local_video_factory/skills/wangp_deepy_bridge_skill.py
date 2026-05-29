@@ -30,7 +30,11 @@ def build_deepy_pack(shot: Dict[str, Any], character_lock_prompt: str = "") -> D
         "motion_hint": motion,
         "lighting_hint": lighting,
         "character_lock_prompt": character_lock_prompt,
-        "copy_ready_prompt": f"{pos} --neg {neg} --camera {camera} --motion {motion}"
+        # WanGP / Deepy UI에 직접 붙여넣기 위한 분리된 복사 필드
+        "wangp_copy_positive": pos,
+        "wangp_copy_negative": neg,
+        # 하위 호환성을 위해 유지 (긍정 프롬프트 단독)
+        "copy_ready_prompt": pos,
     }
 
 

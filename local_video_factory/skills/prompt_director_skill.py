@@ -87,26 +87,22 @@ def generate_prompts(cfg: Dict[str, Any], pm, project: Dict[str, Any],
         s["english_video_prompt"] = eng
         s["negative_prompt"] = negative
         s["status"] = "prompt_ready"
-        
-        # 신규 프롬프트 연구소 필드 연동
+
+        # base_prompt 보존 (연구소 탭에서 원본 비교용)
         s["base_prompt"] = eng
-        
-        # LTX-2 프롬프트 강화기 적용
-        enhanced = ltx_prompt_enhancer_skill.enhance_prompt(
-            cfg, pm, s.get("korean_description", ""),
-            s.get("keywords", []), s.get("emotion", "neutral"),
-            project.get("style_preset", ""), duration=s.get("duration", 5.875)
-        )
-        s["ltx_prompt"] = enhanced["ltx_prompt"]
-        s["ltx_negative_prompt"] = enhanced["ltx_negative_prompt"]
-        
-        # 품질 점수 평가
-        score = prompt_quality_score.evaluate_prompt(enhanced["ltx_prompt"])
+
+        # ltx_prompt는 초기에 base_prompt와 동일하게 초기화
+        # (LTX-2 특화 강화는 사용자가 연구소 탭에서 명시적으로 실행할 때만 수행)
+        s.setdefault("ltx_prompt", eng)
+        s.setdefault("ltx_negative_prompt", negative)
+
+        # 품질 채점 (규칙 기반, LLM 호출 없음)
+        score = prompt_quality_score.evaluate_prompt(eng)
         s["prompt_quality_score"] = score
-        
-        # Deepy 팩 생성
+
+        # Deepy 팩 초기 빌드 (LLM 호출 없음)
         s["deepy_prompt_pack"] = wangp_deepy_bridge_skill.build_deepy_pack(s)
-        
+
         # 기본 텍스트 파일 저장
         pm.save_text(f"prompt_{num:03d}.txt", eng + "\n")
 

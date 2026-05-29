@@ -15,6 +15,7 @@ WanGP/LTX2 + Supertonic3 + ffmpeg로 최종 영상을 조립합니다.
 - Phase 3: 컷별 나레이션(Supertonic3) → `audio/audio_XXX.wav`, `timeline.json`, `captions.srt`
 - Phase 4: WanGP output 폴더 감시 → 새 mp4 자동 감지 → `outputs/shot_XXX.mp4` 연결
 - Phase 5: 컷 영상 + 나레이션 + 자막 → 9:16 `outputs/final.mp4` (ffmpeg)
+- Upgrade: LTX-2 프롬프트 강화 파이프라인 — 품질 채점, Deepy 팩, 성공 라이브러리 (🧪 프롬프트 연구소 탭)
 
 ### 브라우저 UI 실행
 ```powershell
@@ -22,12 +23,13 @@ python app_gradio.py     # http://127.0.0.1:7860
 ```
 0. "시작" 탭: 최근 프로젝트를 골라 **이전 작업 이어하기**, 또는 새 영상 만들기
 1. "만들기" 탭: 대본 입력 → **분석하고 컷 만들기**
-2. "컷 보드" 탭: 컷 카드 확인·프롬프트 복사 (전문가 모드로 shots.json 보기)
-3. "음성/자막" 탭: 목소리 선택 → **나레이션 만들기** → 컷별 미리듣기 + 자막(SRT)
-4. "영상 생성" 탭: 컷 프롬프트 복사 → WanGP에서 Generate → **감시 시작**하면 새 mp4를 자동으로 컷에 연결 (또는 직접 파일 선택)
+2. "컷 보드" 탭: 컷 카드 확인·프롬프트 복사 — LTX-2 강화 여부·품질 점수 표시
+3. "🧪 프롬프트 연구소" 탭: 컷별 LTX-2 프롬프트 강화(Qwen LLM), 품질 채점, Deepy JSON 팩 생성, 성공 프롬프트 라이브러리 저장
+4. "음성/자막" 탭: 목소리 선택 → **나레이션 만들기** → 컷별 미리듣기 + 자막(SRT)
+5. "영상 생성" 탭: 컷 프롬프트 복사 → WanGP에서 Generate → **감시 시작**하면 새 mp4를 자동으로 컷에 연결 (또는 직접 파일 선택)
    - ⚡ **한 번에 만들기**: 전 컷을 담은 WanGP **큐 파일(zip)**을 만들어, WanGP의 *Load Queue → Generate*로 배치 생성 (복붙 불필요)
-5. "최종 출력" 탭: 현황 확인 → **최종 영상 만들기** → 9:16 `final.mp4` 미리보기 → 결과 폴더 열기
-6. "진단/설정" 탭: 전체 진단, 모델 자동 선택, 경로/영상 설정 저장, 전문가 모드(JSON·로그 보기)
+6. "최종 출력" 탭: 현황 확인 → **최종 영상 만들기** → 9:16 `final.mp4` 미리보기 → 결과 폴더 열기
+7. "진단/설정" 탭: 전체 진단, 모델 자동 선택, 경로/영상 설정 저장, 전문가 모드(JSON·로그 보기)
 
 ### WanGP output 폴더
 `config.yaml`의 `wan_gp_output_path` = `C:/pinokio/api/wan.git/app/outputs`.
