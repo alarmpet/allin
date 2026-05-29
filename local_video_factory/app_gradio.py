@@ -1089,8 +1089,8 @@ def build_ui(plugin_instance=None) -> gr.Blocks:
                             )
                             gr.Textbox(
                                 value=s.get("english_video_prompt", ""),
-                                label="영상 프롬프트 (WanGP 복붙용 · 복사 아이콘 클릭)",
-                                lines=3, interactive=False, buttons=["copy"],
+                                label="영상 프롬프트 (WanGP 복붙용)",
+                                lines=3, interactive=False,
                             )
                             # LTX-2 강화 프롬프트가 있고 base와 다르면 별도 표시
                             ltx = s.get("ltx_prompt", "")
@@ -1098,14 +1098,14 @@ def build_ui(plugin_instance=None) -> gr.Blocks:
                             if ltx and ltx != base:
                                 gr.Textbox(
                                     value=ltx,
-                                    label="✨ LTX-2 강화 프롬프트 (복사 아이콘 클릭)",
-                                    lines=3, interactive=False, buttons=["copy"],
+                                    label="✨ LTX-2 강화 프롬프트",
+                                    lines=3, interactive=False,
                                 )
                             if expert:
                                 gr.Textbox(
                                     value=s.get("negative_prompt", ""),
                                     label="negative prompt",
-                                    lines=2, interactive=False, buttons=["copy"],
+                                    lines=2, interactive=False,
                                 )
 
                             # WanGP 주입 버튼 (플러그인 모드일 때만 노출)
@@ -1157,8 +1157,8 @@ def build_ui(plugin_instance=None) -> gr.Blocks:
                     with gr.Column(scale=2):
                         lab_score_md = gr.Markdown("#### 📊 품질 점수: -")
                         lab_feedback = gr.Textbox(label="피드백 및 개선 제안", lines=6, interactive=False)
-                        lab_copy_ready = gr.Textbox(label="WanGP 복사용 (Positive)", lines=4, interactive=False, buttons=["copy"])
-                        lab_copy_neg = gr.Textbox(label="WanGP Negative Prompt 복사", lines=2, interactive=False, buttons=["copy"])
+                        lab_copy_ready = gr.Textbox(label="WanGP 복사용 (Positive)", lines=4, interactive=False)
+                        lab_copy_neg = gr.Textbox(label="WanGP Negative Prompt 복사", lines=2, interactive=False)
                         
                         if plugin_instance:
                             lab_inject_btn = gr.Button("🎯 이 컷을 WanGP 프롬프트에 직접 주입", variant="secondary")
@@ -1257,7 +1257,7 @@ def build_ui(plugin_instance=None) -> gr.Blocks:
 
                 gr.Markdown("---\n#### 📝 자막 (captions.srt)")
                 srt_box = gr.Textbox(label="자막 미리보기", lines=10, visible=False,
-                                     buttons=["copy"], interactive=False)
+                                     interactive=False)
 
                 tts_btn.click(
                     make_tts,
@@ -1285,9 +1285,9 @@ def build_ui(plugin_instance=None) -> gr.Blocks:
                     refresh_vid_btn = gr.Button("🔄 컷 불러오기/새로고침", scale=1)
 
                 cur_prompt = gr.Textbox(label="복사할 프롬프트", lines=4,
-                                        interactive=False, buttons=["copy"])
+                                        interactive=False)
                 cur_negative = gr.Textbox(label="Negative Prompt", lines=2,
-                                          interactive=False, buttons=["copy"])
+                                          interactive=False)
                 gr.Markdown(_rec0)
 
                 with gr.Accordion("⚡ 한 번에 만들기 (WanGP 큐 파일) — 복붙 없이", open=False):
