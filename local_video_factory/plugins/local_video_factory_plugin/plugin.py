@@ -6,8 +6,6 @@ from shared.utils.plugins import WAN2GPPlugin
 # 플러그인 로드 시 local_video_factory 패키지 경로를 sys.path에 추가하여
 # core 및 skills 모듈을 정상적으로 임포트할 수 있도록 보장
 plugin_dir = os.path.dirname(os.path.abspath(__file__))
-# 1) plugins/local_video_factory_plugin/ -> local_video_factory/ (parent_dir)
-# 2) local_video_factory/가 sys.path에 있어야 core와 skills를 바로 import 가능
 parent_dir = os.path.dirname(os.path.dirname(plugin_dir))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
@@ -23,7 +21,7 @@ class LocalVideoFactoryPlugin(WAN2GPPlugin):
     def __init__(self):
         super().__init__()
         self.name = "Local Video Factory"
-        self.version = "1.1.0"
+        self.version = "1.1.1"
         self.description = "대본을 분석하여 컷 분할 및 스타일 고정 프롬프트를 자동 생성하고 WanGP와 연결합니다."
 
     def setup_ui(self):
@@ -60,7 +58,6 @@ class LocalVideoFactoryPlugin(WAN2GPPlugin):
                         label="콘텐츠 목적"
                     )
                     
-                    # 11종의 고유 비주얼 스타일 프리셋 목록
                     visual_style_in = gr.Radio(
                         [
                             "콘텐츠 목적 자동", "3D 애니 필름", "클레이 애니메이션", "로파이 3D 피규어",
@@ -82,40 +79,66 @@ class LocalVideoFactoryPlugin(WAN2GPPlugin):
             # 컷 정보 저장용 State
             shots_state = gr.State([])
 
-            # 동적 컷 리스트 렌더링 영역
-            @gr.render(inputs=[shots_state])
-            def render_shots_board(shots):
-                if not shots:
-                    gr.Markdown("_대본을 분석하여 컷을 생성하면 여기에 카드로 표시됩니다._")
-                    return
+            # 안정적이고 직관적인 드롭다운 기반 컷 선택 UI (gr.render 버그 회피)
+            with gr.Group():
+                gr.Markdown("#### 🎞️ 생성된 컷 프롬프트 선택 및 주입")
+                with gr.Row():
+                    select_cut_dd = gr.Dropdown(
+                        label="선택된 컷",
+                        choices=[],
+                        interactive=True,
+                        scale=3
+                    )
+                    inject_btn = gr.Button("🎯 이 컷을 WanGP 프롬프트에 주입", variant="secondary", scale=1)
                 
-                gr.Markdown("#### 🎞️ 생성된 컷 카드 목록")
-                for s in shots:
-                    with gr.Card():
-                        with gr.Row():
-                            gr.Markdown(f"**[Cut {s['shot_number']:03d}]** {s.get('korean_description', '')}")
-                            # 🎯 주입 버튼: 원클릭으로 해당 컷의 프롬프트를 WanGP 입력창에 채워넣음
-                            inject_btn = gr.Button("🎯 WanGP 프롬프트에 주입", size="sm")
-                            
-                            # 주입 실행 함수 정의
-                            def make_inject_fn(pos=s.get('ltx_prompt'), neg=s.get('ltx_negative_prompt')):
-                                return lambda: (pos, neg)
-                            
-                            inject_btn.click(
-                                fn=make_inject_fn(),
-                                inputs=[],
-                                outputs=[self.prompt, self.negative_prompt]
-                            )
-                        
-                        with gr.Row():
-                            gr.Textbox(value=s.get('ltx_prompt'), label="Positive Prompt (LTX-2)", interactive=False, scale=3)
-                            gr.Textbox(value=s.get('ltx_negative_prompt'), label="Negative Prompt (LTX-2)", interactive=False, scale=2)
+                with gr.Row():
+                    prompt_preview = gr.Textbox(label="Positive Prompt", lines=4, interactive=False, scale=3)
+                    neg_preview = gr.Textbox(label="Negative Prompt", lines=2, interactive=False, scale=2)
 
-            # 분석 실행 이벤트
+            # 컷 선택 변경 이벤트 정의
+            def on_cut_select(selected_label, shots):
+                if not selected_label or not shots:
+                    return "", ""
+                try:
+                    # "Cut 001 - ..." 포맷에서 번호 추출
+                    num_str = selected_label.split(" - ")[0].replace("Cut ", "")
+                    num = int(num_str)
+                    shot = next((s for s in shots if s["shot_number"] == num), None)
+                    if shot:
+                        return shot.get("ltx_prompt", ""), shot.get("ltx_negative_prompt", "")
+                except Exception:
+                    pass
+                return "", ""
+
+            select_cut_dd.change(
+                fn=on_cut_select,
+                inputs=[select_cut_dd, shots_state],
+                outputs=[prompt_preview, neg_preview]
+            )
+
+            # 주입 이벤트 정의 (Gradio 텍스트상자의 현재 값을 WanGP 메인 탭에 덮어씀)
+            inject_btn.click(
+                fn=lambda p, n: (p, n),
+                inputs=[prompt_preview, neg_preview],
+                outputs=[self.prompt, self.negative_prompt]
+            )
+
+            # 분석 완료 콜백
+            def on_analyze_done(status, shots):
+                if not shots:
+                    return status, gr.update(choices=[], value=None), []
+                choices = [f"Cut {s['shot_number']:03d} - {s.get('korean_description', '')[:30]}" for s in shots]
+                return status, gr.update(choices=choices, value=choices[0]), shots
+
+            # 분석 실행 이벤트 체인
             analyze_btn.click(
                 fn=self.plugin_analyze,
                 inputs=[title_in, script_in, mode_in, visual_style_in, char_lock_in],
                 outputs=[status_out, shots_state]
+            ).then(
+                fn=on_analyze_done,
+                inputs=[status_out, shots_state],
+                outputs=[status_out, select_cut_dd, shots_state]
             )
 
         return demo
@@ -177,7 +200,7 @@ class LocalVideoFactoryPlugin(WAN2GPPlugin):
             # 최종 결과 로드
             shots_final = pm.load_json("shots.json")["shots"]
             
-            return f"### 🎉 컷 {len(shots_final)}개 생성 및 프롬프트 준비 완료!\n아래 카드에서 원하는 컷을 골라 **주입** 버튼을 누른 뒤 생성해 보세요.", shots_final
+            return f"### 🎉 컷 {len(shots_final)}개 생성 및 프롬프트 준비 완료!\n아래 선택 상자에서 컷을 골라 **주입** 버튼을 누르시면 됩니다.", shots_final
 
         except llm_client.LLMError as e:
             return f"### ⚠️ LLM 생성 도중 에러 발생: {e.message}", []
